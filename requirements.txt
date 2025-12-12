@@ -5,3 +5,6 @@ chromadb
 sentence-transformers
 unstructured
 markdown
+transformers
+accelerate
+streamlit
