@@ -3,6 +3,7 @@ import glob
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFacePipeline
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # 1. Load Markdown Files
@@ -48,6 +49,40 @@ def create_vector_store(chunks):
     )
     return vectorstore
 
+# 4. Initialize LLM (Local)
+def initialize_llm():
+    print("Initializing LLM (google/flan-t5-base)...")
+    # Using a small T5 model for CPU-friendly local generation
+    llm = HuggingFacePipeline.from_model_id(
+        model_id="google/flan-t5-base", 
+        task="text2text-generation",
+        pipeline_kwargs={"max_new_tokens": 200}
+    )
+    return llm
+
+# 5. Manual RAG Chain (No Dependency on langchain.chains)
+def ask_question(query, retriever, llm):
+    # 1. Retrieve
+    # Chroma retriever returns documents
+    docs = retriever.invoke(query)
+    
+    if not docs:
+        return "I couldn't find any relevant information."
+        
+    # 2. Context
+    context_text = "\n\n".join([doc.page_content for doc in docs])
+    
+    # 3. Prompt (T5 specific formatting can be helpful, but generic works)
+    prompt = f"Use the following context to answer the question.\n\nContext:\n{context_text}\n\nQuestion: {query}\n\nAnswer:"
+    
+    # 4. Generate
+    response = llm.invoke(prompt)
+    
+    return {
+        "result": response,
+        "source_documents": docs
+    }
+
 def main():
     data_dir = "./data"
     
@@ -69,21 +104,42 @@ def main():
     # 3. Store
     vectorstore = create_vector_store(chunks)
     print("Vector database created successfully.")
+    
+    # 4. Initialize LLM
+    try:
+        llm = initialize_llm()
+    except Exception as e:
+        print(f"Error initializing LLM: {e}")
+        return
 
-    # 4. Test Retrieval
-    queries = ["What is RAG?", "What are the use cases of Python?"]
+    # 5. Get Retriever
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 2})
+
+    # 6. Test Generation
+    queries = ["What is RAG?", "What are the use cases of Python?", "Combine RAG and Python in a sentence."]
     
     for query in queries:
         print(f"\n{'='*40}")
-        print(f"Test Query: '{query}'")
+        print(f"Query: '{query}'")
         print(f"{'='*40}")
         
-        results = vectorstore.similarity_search(query, k=1)
-        
-        for i, res in enumerate(results):
-            print(f"\nResult {i+1}:")
-            print(f"Source: {res.metadata.get('source', 'Unknown')}")
-            print(f"Content Preview: {res.page_content[:300]}...\n")
+        try:
+            result = ask_question(query, retriever, llm)
+            
+            # Handle if result is just string or dict (our function returns dict)
+            answer = result["result"] if isinstance(result, dict) else result
+            
+            print(f"\nAnswer: {answer}")
+            
+            if isinstance(result, dict) and "source_documents" in result:
+                print("\n--- Sources ---")
+                for doc in result["source_documents"]:
+                    print(f"- {doc.metadata.get('source', 'Unknown')}")
+                    
+        except Exception as e:
+            print(f"Error during query execution: {e}")
+            import traceback
+            traceback.print_exc()
 
 if __name__ == "__main__":
     main()
