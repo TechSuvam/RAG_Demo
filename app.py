@@ -132,7 +132,17 @@ if prompt := st.chat_input("Ask a question about your docs..."):
                         llm = get_llm()
                         
                         # Generate
-                        full_prompt = f"Use the context below to answer the question.\n\nContext:\n{context}\n\nQuestion: {prompt}\n\nAnswer:"
+                        # T5 prompt structure that works better for valid QA
+                        full_prompt = f"""Use the following pieces of context to answer the question at the end. 
+If the answer is not in the context, just say that you don't know, don't try to make up an answer.
+If the question is a greeting (like hello, hi), simply greet the user back.
+
+Context:
+{context}
+
+Question: {prompt}
+
+Helpful Answer:"""
                         response = llm.invoke(full_prompt)
                     
                     st.markdown(response)
